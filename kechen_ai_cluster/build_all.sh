@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-#  build_all.sh — 客尘AI集群v1.0 编译 5 个专家 (v0.8 架构, 同一份源码)
+#  build_all.sh — 客尘AI集群v1.0 编译 6 个专家 (v0.8 架构, 同一份源码)
 # ============================================================================
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,7 +8,7 @@ cd "$DIR"
 CXX="${CXX:-clang++}"
 FLAGS="-O2 -std=c++17"
 
-echo "== 客尘AI集群v1.0 · 编译 5 个专家 (v0.8 架构) =="
+echo "== 客尘AI集群v1.0 · 编译 6 个专家 (v0.8 架构) =="
 echo "编译器: $CXX"
 echo
 
@@ -30,6 +30,7 @@ build lunyu   corpus_lunyu.txt   ai_brain_lunyu_weights.bin   "学而时习之|�
 build chat    corpus_chat.txt    ai_brain_chat_weights.bin    "你好|你叫什么|再见|你会什么"
 build cosmos  corpus_cosmos.txt  ai_brain_cosmos_weights.bin  "负一元素是|宇宙的本原|归源衰变|引力元素"
 build math    corpus_math.txt    ai_brain_math_weights.bin    "1+1等于几|3×3等于几|什么是加法|圆周率"
+build history corpus_history.txt ai_brain_history_weights.bin "中国第一个朝代是什么|新中国成立是哪一年|长城是谁修的|历史是什么"
 
 echo "== 全部编译完成 =="
-ls -la ai_brain_poet ai_brain_lunyu ai_brain_chat ai_brain_cosmos ai_brain_math
+ls -la ai_brain_poet ai_brain_lunyu ai_brain_chat ai_brain_cosmos ai_brain_math ai_brain_history
