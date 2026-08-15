@@ -7,6 +7,8 @@
 #    宇宙/负一/能量/混沌/元素/循环/归源 -> cosmos  (宇宙专家)
 #    诗/床/月/望/江                    -> poet    (古诗专家)
 #    学/君子/论语/名言                 -> lunyu   (论语+名言专家)
+#    朝代/历史/皇帝/明朝/唐朝/宋朝/清朝/
+#    战争/公元/年                      -> history (历史专家)
 #    其他                              -> chat    (对话专家)
 #
 #  用法:
@@ -27,6 +29,8 @@ route_expert() {
         echo "poet"
     elif printf '%s' "$input" | grep -qE '学|君子|论语|名言'; then
         echo "lunyu"
+    elif printf '%s' "$input" | grep -qE '朝代|历史|皇帝|明朝|唐朝|宋朝|清朝|战争|公元|年'; then
+        echo "history"
     else
         echo "chat"
     fi
@@ -36,11 +40,12 @@ ask() {
     local input="$1" expert reason
     expert="$(route_expert "$input")"
     case "$expert" in
-        math)   reason="命中关键词[加/减/乘/除/数学/等于/多少/几]";;
-        cosmos) reason="命中关键词[宇宙/负一/能量/混沌/元素/循环/归源]";;
-        poet)   reason="命中关键词[诗/床/月/望/江]";;
-        lunyu)  reason="命中关键词[学/君子/论语/名言]";;
-        *)      reason="未命中关键词 -> 默认聊天专家";;
+        math)    reason="命中关键词[加/减/乘/除/数学/等于/多少/几]";;
+        cosmos)  reason="命中关键词[宇宙/负一/能量/混沌/元素/循环/归源]";;
+        poet)    reason="命中关键词[诗/床/月/望/江]";;
+        lunyu)   reason="命中关键词[学/君子/论语/名言]";;
+        history) reason="命中关键词[朝代/历史/皇帝/明朝/唐朝/宋朝/清朝/战争/公元/年]";;
+        *)       reason="未命中关键词 -> 默认聊天专家";;
     esac
     echo "【路由】输入: $input"
     echo "【路由】→ ai_brain_$expert  ($reason)"
@@ -56,7 +61,7 @@ if [ "$#" -ge 1 ]; then
     ask "$*"
 else
     echo "===== 客尘AI集群v1.0 · 路由交互模式 ====="
-    echo "输入内容自动路由到 5 个专家之一 (quit/exit 退出)"
+    echo "输入内容自动路由到 6 个专家之一 (quit/exit 退出)"
     echo
     while true; do
         printf '你> '
