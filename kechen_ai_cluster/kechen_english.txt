@@ -1,0 +1,49 @@
+英-hello=hello是什么意思=你好
+英-goodbye=goodbye是什么意思=再见
+英-thank you=thank you是什么意思=谢谢
+英-sorry=sorry是什么意思=对不起
+英-please=please是什么意思=请
+英-yes=yes是什么意思=是的
+英-no=no是什么意思=不是
+英-what=what是什么意思=什么
+英-who=who是什么意思=谁
+英-where=where是什么意思=哪里
+英-when=when是什么意思=什么时候
+英-why=why是什么意思=为什么
+英-how=how是什么意思=怎么，如何
+英-good=good是什么意思=好的
+英-bad=bad是什么意思=坏的
+英-big=big是什么意思=大的
+英-small=small是什么意思=小的
+英-hot=hot是什么意思=热的
+英-cold=cold是什么意思=冷的
+英-water=water是什么意思=水
+英-food=food是什么意思=食物
+英-apple=apple是什么意思=苹果
+英-book=book是什么意思=书
+英-school=school是什么意思=学校
+英-teacher=teacher是什么意思=老师
+英-student=student是什么意思=学生
+英-friend=friend是什么意思=朋友
+英-family=family是什么意思=家庭
+英-mother=mother是什么意思=母亲
+英-father=father是什么意思=父亲
+英-dog=dog是什么意思=狗
+英-cat=cat是什么意思=猫
+英-sun=sun是什么意思=太阳
+英-moon=moon是什么意思=月亮
+英-star=star是什么意思=星星
+英-sky=sky是什么意思=天空
+英-sea=sea是什么意思=大海
+英-mountain=mountain是什么意思=山
+英-river=river是什么意思=河流
+英-tree=tree是什么意思=树
+英-flower=flower是什么意思=花
+英-what's your name=what's your name是什么意思=你叫什么名字
+英-how are you=how are you是什么意思=你好吗
+英-i love you=i love you是什么意思=我爱你
+英-good morning=good morning是什么意思=早上好
+英-good night=good night是什么意思=晚安
+英-welcome=welcome是什么意思=欢迎
+英-hello怎么读=hello怎么读=哈喽
+英-thank you怎么读=thank you怎么读=三克油
