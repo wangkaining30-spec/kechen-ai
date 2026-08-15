@@ -3,6 +3,7 @@
 #  router.sh — 客尘AI集群v1.0 路由器 (关键词路由 -> 专家AI)
 #
 #  路由规则 (优先级从高到低):
+#    加/减/乘/除/数学/等于/多少/几      -> math    (数学专家)
 #    宇宙/负一/能量/混沌/元素/循环/归源 -> cosmos  (宇宙专家)
 #    诗/床/月/望/江                    -> poet    (古诗专家)
 #    学/君子/论语/名言                 -> lunyu   (论语+名言专家)
@@ -18,7 +19,9 @@ cd "$DIR"
 
 route_expert() {
     local input="$1"
-    if printf '%s' "$input" | grep -qE '宇宙|负一|能量|混沌|元素|循环|归源'; then
+    if printf '%s' "$input" | grep -qE '加|减|乘|除|数学|等于|多少|几'; then
+        echo "math"
+    elif printf '%s' "$input" | grep -qE '宇宙|负一|能量|混沌|元素|循环|归源'; then
         echo "cosmos"
     elif printf '%s' "$input" | grep -qE '诗|床|月|望|江'; then
         echo "poet"
@@ -33,6 +36,7 @@ ask() {
     local input="$1" expert reason
     expert="$(route_expert "$input")"
     case "$expert" in
+        math)   reason="命中关键词[加/减/乘/除/数学/等于/多少/几]";;
         cosmos) reason="命中关键词[宇宙/负一/能量/混沌/元素/循环/归源]";;
         poet)   reason="命中关键词[诗/床/月/望/江]";;
         lunyu)  reason="命中关键词[学/君子/论语/名言]";;
@@ -52,7 +56,7 @@ if [ "$#" -ge 1 ]; then
     ask "$*"
 else
     echo "===== 客尘AI集群v1.0 · 路由交互模式 ====="
-    echo "输入内容自动路由到 4 个专家之一 (quit/exit 退出)"
+    echo "输入内容自动路由到 5 个专家之一 (quit/exit 退出)"
     echo
     while true; do
         printf '你> '
