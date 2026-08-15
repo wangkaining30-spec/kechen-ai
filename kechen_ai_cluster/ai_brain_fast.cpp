@@ -221,6 +221,7 @@ static void add_to_index(Index& idx, Entry& e) {
 static void parse_line(Index& idx, const string& raw) {
     string line = trim(raw);
     if (line.empty()) return;
+    if (line[0] == '#') return;          // 跳过注释行 (语料文件可写 # 头部说明)
     vector<string> parts = split_eq(line, 3);
     Entry e;
     if (parts.size() == 1) {
@@ -345,16 +346,26 @@ static Hit retrieve(const Index& idx, const string& question) {
         if (it != idx.bigram_inv.end())
             for (int ix : it->second) cands.insert(ix);
     }
-    // 只对候选打分
+    // 只对候选打分, 并施加 "key 相关性门槛" 防误命中:
+    //   QA 条目 (key=问题): 要求 key 与问题实质相关 (km>=2: 相等 / key是问题前缀 /
+    //     问题包含key), 否则仅字符重叠也会误答 — 例如学了 "2的10次方=1024" 后,
+    //     "2的16次方" 字符相似度 0.77 会误命中 1024; 门槛将其拦截, 转正确计算/搜索。
+    //   纯文本条目 (古诗/名言/陈述): 允许片段匹配 (km>=1: key 含问题片段)。
+    //   高相似度兜底: 相似度 >=0.95 的近全同匹配直接放行 (如短关键词 "重力"
+    //     对 key "什么是重力" 片段命中, 字符/双字全覆盖, 判定同义)。
     for (int ix : cands) {
-        double s = score_entry(q, idx.entries[ix]);
-        if (!best.found || better(idx.entries[ix], idx.entries[best.index], q, s, best.score)) {
+        const Entry& e = idx.entries[ix];
+        double s = score_entry(q, e);
+        if (s < kThreshold) continue;
+        int km = key_match(e, q);
+        bool gate_ok = (km >= 2) || (!e.is_qa && km >= 1) || (s >= 0.95);
+        if (!gate_ok) continue;
+        if (!best.found || better(e, idx.entries[best.index], q, s, best.score)) {
             best.found = true;
             best.index = ix;
             best.score = s;
         }
     }
-    if (best.found && best.score < kThreshold) best.found = false;
     return best;
 }
 
