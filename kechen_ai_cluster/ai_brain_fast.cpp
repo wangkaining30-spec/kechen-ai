@@ -2,25 +2,29 @@
 //  ai_brain_fast.cpp — 客尘AI集群v2.0 · 轻量问答程序 (Fast 快答层)
 //
 //  混合架构第一层: 知识问答秒答 (零训练 / 零权重 / 纯查表)
-//    1. 启动时加载 6 个语料文件 (corpus_{poet,lunyu,chat,cosmos,math,history}.txt)
-//    2. 每行解析为 (key, value) 问答对, 支持 "前缀-X=Q=A" 三段格式
-//    3. 建立倒排索引 (字符 + 双字n-gram -> 条目), 提问时只检索相关条目
-//    4. 相似度 = 0.6 × 字符覆盖率 + 0.4 × 双字覆盖率, 命中阈值 0.60
-//    5. 命中直接输出答案 (毫秒级, 秒答); 未命中退出码 1, 交给 router.sh
+//    1. 启动时自动扫描当前目录所有 corpus_*.txt 文件并加载 (无需手工维护列表)
+//    2. 加载 ~/.fast_alias.txt 同义词/表达变体映射表 ("变体1|变体2|...=标准问法")
+//    3. 每行解析为 (key, value) 问答对, 支持 "前缀-X=Q=A" 三段格式
+//    4. 提问前先做表达归一化: 命中变体则映射为标准问法, 再做检索
+//    5. 建立倒排索引 (字符 + 双字n-gram -> 条目), 提问时只检索相关条目
+//    6. 相似度 = 0.6 × 字符覆盖率 + 0.4 × 双字覆盖率, 命中阈值 0.60
+//    7. 命中直接输出答案 (毫秒级, 秒答); 未命中退出码 1, 交给 router.sh
 //       转专家模型 (生成/续写)
 //
 //  用法:
 //    ./ai_brain_fast                交互模式 (输入 quit 退出)
 //    ./ai_brain_fast -q "问题"      单次问答: 命中打印答案并退出0; 未命中退出1
 //    ./ai_brain_fast --stats        打印索引统计
-//    ./ai_brain_fast --demo         演示: 4 个知识问答(秒答) + 1 个未命中
+//    ./ai_brain_fast --demo         演示: 4 知识问答 + 4 表达归一化 + 1 未命中
 //
 //  编译: clang++ -O2 -std=c++17 ai_brain_fast.cpp -o ai_brain_fast
 // ============================================================================
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -31,16 +35,29 @@
 
 using namespace std;
 using Clock = chrono::steady_clock;
+namespace fs = std::filesystem;
 
 // --------------------------- 可调参数 ---------------------------
 static const double kCharWeight   = 0.6;   // 字符覆盖率权重
 static const double kBigramWeight = 0.4;   // 双字覆盖率权重
 static const double kThreshold    = 0.60;  // 命中阈值 (语料内问答 >0.9, 未学输入 <0.55)
-static const char*  kCorpusFiles[] = {
-    "corpus_poet.txt", "corpus_lunyu.txt", "corpus_chat.txt",
-    "corpus_cosmos.txt", "corpus_math.txt", "corpus_history.txt"
-};
-static const int kCorpusCount = 6;
+
+// 扫描当前目录, 收集所有 corpus_*.txt 语料文件 (按文件名排序, 加载顺序确定)
+static vector<string> scan_corpus_files() {
+    vector<string> files;
+    error_code ec;
+    for (const auto& de : fs::directory_iterator(".", ec)) {
+        if (ec) break;
+        if (!de.is_regular_file()) continue;
+        string name = de.path().filename().string();
+        if (name.compare(0, 7, "corpus_") == 0 &&
+            name.size() >= 11 &&
+            name.compare(name.size() - 4, 4, ".txt") == 0)
+            files.push_back(name);
+    }
+    sort(files.begin(), files.end());
+    return files;
+}
 
 // --------------------------- UTF-8 工具 ---------------------------
 // 把 UTF-8 字符串按字符切分 (字节方式, 与 ai_brain_v08.cpp 一致)
@@ -97,6 +114,76 @@ static vector<string> split_eq(const string& s, int limit) {
     return out;
 }
 
+// --------------------------- 表达归一化 (同义词/变体映射) ---------------------------
+// 变体 -> 标准问法, 从 ~/.fast_alias.txt 加载 ("变体1|变体2|...=标准问法")
+static unordered_map<string, string> g_aliases;
+
+static string home_file(const string& fname) {
+    const char* home = getenv("HOME");
+    if (home && *home) return string(home) + "/" + fname;
+    return fname;                              // 无 HOME 时退回当前目录
+}
+
+// 加载 ~/.fast_alias.txt; 不存在/为空时仅告警, 不影响纯查表检索
+static void load_aliases() {
+    g_aliases.clear();
+    string path = home_file(".fast_alias.txt");
+    string content = load_file(path);
+    if (content.empty()) {
+        cerr << "[警告] 找不到别名映射文件: " << path << endl;
+        return;
+    }
+    istringstream in(content);
+    string line;
+    while (getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        string t = trim(line);
+        if (t.empty() || t[0] == '#') continue;              // 跳过空行/注释
+        size_t eq = t.find('=');
+        if (eq == string::npos) continue;                    // 无 "=" 的非法行
+        string variants = trim(t.substr(0, eq));
+        string standard = trim(t.substr(eq + 1));
+        if (variants.empty() || standard.empty()) continue;
+        size_t start = 0;                                    // 按 '|' 拆分多个变体
+        while (start <= variants.size()) {
+            size_t bar = variants.find('|', start);
+            string v = trim(variants.substr(
+                start, bar == string::npos ? string::npos : bar - start));
+            if (!v.empty()) g_aliases[v] = standard;
+            if (bar == string::npos) break;
+            start = bar + 1;
+        }
+    }
+    cerr << "[别名] 已加载 " << g_aliases.size() << " 个表达变体 ("
+         << path << ")" << endl;
+}
+
+// 去掉句尾常见标点 (中英文句号/问号/叹号/逗号等, 按字符切分兼容UTF-8),
+// 便于 "3乘3？" 这类带标点的问法命中别名变体 "3乘3"
+static string strip_tail_punct(const string& s) {
+    static const unordered_set<string> kPunct = {
+        "。", "！", "？", "!", "?", "～", "~", "，", ",", "、",
+        "；", ";", "：", ":", "…", "."
+    };
+    vector<string> cs = utf8_chars(s);
+    size_t end = cs.size();
+    while (end > 0 && kPunct.count(cs[end - 1])) --end;
+    string out;
+    for (size_t i = 0; i < end; ++i) out += cs[i];
+    return out;
+}
+
+// 查询前表达归一化: 去句尾标点后整句命中变体 -> 映射为标准问法; 否则原样返回
+static string normalize_query(const string& q) {
+    string t = trim(q);
+    if (t.empty()) return q;
+    string core = strip_tail_punct(t);
+    if (core.empty()) return q;
+    auto it = g_aliases.find(core);
+    if (it != g_aliases.end()) return it->second;
+    return q;
+}
+
 // --------------------------- 索引结构 ---------------------------
 struct Entry {
     string key;                          // 问题 / 标题 / 纯文本
@@ -112,6 +199,8 @@ struct Index {
     unordered_map<string, vector<int>> char_inv;   // 字符 -> 条目下标
     unordered_map<string, vector<int>> bigram_inv; // 双字 -> 条目下标
     int file_count = 0;
+    vector<string> file_names;           // 实际加载的语料文件名 (扫描顺序)
+    vector<int>    file_counts;          // 每个文件的条目数
 };
 
 // 从 key+value 文本生成 字符集 / 双字集, 并加入倒排索引
@@ -154,16 +243,19 @@ static void parse_line(Index& idx, const string& raw) {
     idx.entries.push_back(e);
 }
 
-// 加载全部 6 个语料文件, 建立索引; file_counts 记录每个文件的条目数
-static size_t build_index(Index& idx, vector<int>& file_counts) {
-    for (int i = 0; i < kCorpusCount; ++i) {
-        string path = kCorpusFiles[i];
+// 自动扫描当前目录全部 corpus_*.txt 并建立索引;
+// idx.file_names / idx.file_counts 记录实际加载的文件及其条目数
+static size_t build_index(Index& idx) {
+    load_aliases();                       // 先加载别名表 (表达归一化用)
+    vector<string> files = scan_corpus_files();
+    for (const string& path : files) {
         string content = load_file(path);
         if (content.empty()) {
-            cerr << "[警告] 找不到语料文件: " << path << endl;
+            cerr << "[警告] 无法读取语料文件: " << path << endl;
             continue;
         }
         ++idx.file_count;
+        idx.file_names.push_back(path);
         size_t before = idx.entries.size();
         istringstream in(content);
         string line;
@@ -171,8 +263,10 @@ static size_t build_index(Index& idx, vector<int>& file_counts) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
             parse_line(idx, line);
         }
-        file_counts.push_back((int)(idx.entries.size() - before));
+        idx.file_counts.push_back((int)(idx.entries.size() - before));
     }
+    if (idx.file_count == 0)
+        cerr << "[警告] 当前目录未找到任何 corpus_*.txt 语料文件" << endl;
     return idx.entries.size();
 }
 
@@ -235,7 +329,8 @@ struct Hit {
 };
 
 static Hit retrieve(const Index& idx, const string& question) {
-    Query q = build_query(question);
+    string norm = normalize_query(question);      // 先表达归一化 (变体->标准问法)
+    Query q = build_query(norm);
     Hit best;
     if (q.chars.empty()) return best;
     // 倒排索引召回候选: 问题字符/双字命中的条目并集
@@ -282,18 +377,17 @@ static void show_stats(const Index& idx, double build_ms) {
 
 static int demo_mode() {
     Index idx;
-    vector<int> counts;
     Clock::time_point t0 = Clock::now();
-    size_t n = build_index(idx, counts);
+    size_t n = build_index(idx);
     double build_ms = ms_since(t0);
     cout << "========== ai_brain_fast --demo · 快答层演示 ==========" << endl;
-    cout << "[启动] 加载 6 个语料文件, 建立倒排索引 ..." << endl;
+    cout << "[启动] 自动扫描当前目录 corpus_*.txt, 建立倒排索引 ..." << endl;
     cout << "[启动] ";
-    for (int i = 0; i < kCorpusCount; ++i) {
+    for (size_t i = 0; i < idx.file_names.size(); ++i) {
         if (i) cout << " | ";
-        string fname(kCorpusFiles[i]);
+        string fname = idx.file_names[i];
         string label = fname.substr(7, fname.size() - 11);   // corpus_xxx.txt -> xxx
-        cout << label << "=" << (i < (int)counts.size() ? counts[i] : 0) << "条";
+        cout << label << "=" << (i < idx.file_counts.size() ? idx.file_counts[i] : 0) << "条";
     }
     cout << endl;
     cout << "[启动] 共 " << n << " 条, 相似度阈值 " << kThreshold
@@ -315,7 +409,23 @@ static int demo_mode() {
     }
     cout << endl;
 
-    cout << "---- 二、未学过的输入 (语料外, 应未命中 → 转专家模型) ----" << endl;
+    cout << "---- 二、表达归一化 (变体问法 -> 标准问法, 应命中快答层) ----" << endl;
+    const char* aliased[] = { "在吗", "你叫啥", "3乘3", "光速多少" };
+    for (const char* q : aliased) {
+        Clock::time_point q0 = Clock::now();
+        Hit h = retrieve(idx, q);
+        double qms = ms_since(q0);
+        if (h.found)
+            cout << "Q: " << q << "  (归一化 -> " << normalize_query(q) << ")"
+                 << "\n   ✅ 命中 (相似度 " << h.score << ") " << qms << " ms → "
+                 << idx.entries[h.index].value << endl;
+        else
+            cout << "Q: " << q << "  (归一化 -> " << normalize_query(q) << ")"
+                 << "\n   ❌ 未命中?! (" << qms << " ms)" << endl;
+    }
+    cout << endl;
+
+    cout << "---- 三、未学过的输入 (语料外, 应未命中 → 转专家模型) ----" << endl;
     const char* unknown = "给我讲讲哲学";
     Clock::time_point q0 = Clock::now();
     Hit h = retrieve(idx, unknown);
@@ -335,8 +445,7 @@ static int query_mode(const string& question) {
     static Index idx;
     static bool built = false;
     if (!built) {
-        vector<int> counts;
-        build_index(idx, counts);
+        build_index(idx);
         built = true;
     }
     Hit h = retrieve(idx, question);
@@ -347,9 +456,8 @@ static int query_mode(const string& question) {
 
 static int interactive_mode() {
     Index idx;
-    vector<int> counts;
     Clock::time_point t0 = Clock::now();
-    size_t n = build_index(idx, counts);
+    size_t n = build_index(idx);
     double build_ms = ms_since(t0);
     cout << "===== 客尘AI集群v2.0 · ai_brain_fast 快答层 (零训练/零权重/纯查表) =====" << endl;
     cout << "已加载 " << idx.file_count << " 份语料, 共 " << n << " 条问答/文本, 建索引 "
@@ -384,9 +492,8 @@ int main(int argc, char** argv) {
     if (argc >= 2 && string(argv[1]) == "--demo") return demo_mode();
     if (argc >= 2 && string(argv[1]) == "--stats") {
         Index idx;
-        vector<int> counts;
         Clock::time_point t0 = Clock::now();
-        build_index(idx, counts);
+        build_index(idx);
         show_stats(idx, ms_since(t0));
         return 0;
     }
